@@ -6,3 +6,5 @@ models/
 *.npz
 samples/
 *.egg-info/
+*.png
+*.jpg
