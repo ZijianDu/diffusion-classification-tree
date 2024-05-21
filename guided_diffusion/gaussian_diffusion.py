@@ -392,6 +392,12 @@ class GaussianDiffusion:
         )
         return out
 
+
+    
+    # two sampling approaches: p sample and ddim sample
+    # sample loop is wrapper for progressive function that generate
+    # a sample xt, the function calls p_sample/ddim_sample which actually
+    # do the sampling, use ddim in args and modify s.t ddim reverse sample function is used
     def p_sample(
         self,
         model,
@@ -608,6 +614,9 @@ class GaussianDiffusion:
         )
         # Usually our model outputs epsilon, but we re-derive it
         # in case we used x_start or x_prev prediction.
+
+        # this is same as the diffusion kernel function that predict xt using x0
+        # here we use the formula to obtain eps
         eps = (
             _extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x.shape) * x
             - out["pred_xstart"]

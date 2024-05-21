@@ -5,7 +5,8 @@ process towards more realistic images.
 
 import argparse
 import os
-
+from visualization.visualizer import visualizer
+import pickle
 import numpy as np
 import torch as th
 import torch.distributed as dist
@@ -55,8 +56,13 @@ def main():
         assert y is not None
         with th.enable_grad():
             x_in = x.detach().requires_grad_(True)
+            # x_in: batch_size x 3 x img_size x img_size
             logits = classifier(x_in, t)
             log_probs = F.log_softmax(logits, dim=-1)
+            probability = F.softmax(logits, dim = -1)
+            #print("probability of this image: ", probability)
+            #print("sum of probability: ", th.sum(probability))
+            #print(log_probs)
             selected = log_probs[range(len(logits)), y.view(-1)]
             return th.autograd.grad(selected.sum(), x_in)[0] * args.classifier_scale
 
@@ -100,6 +106,17 @@ def main():
     arr = arr[: args.num_samples]
     label_arr = np.concatenate(all_labels, axis=0)
     label_arr = label_arr[: args.num_samples]
+
+    # generated batch of images and labels
+    """
+    images = list(arr[i][:, :, 0].squeeze() for i in range(arr.shape[0]))
+    print("generated image inputs", images)
+    print(images[0].shape)
+    vis = visualizer(2, images, list(label_arr))
+    vis.run_manifold_learning()
+    """
+
+    # how to get 1k dim probability out and send to visualizer for visualization
     if dist.get_rank() == 0:
         shape_str = "x".join([str(x) for x in arr.shape])
         out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")

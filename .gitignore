@@ -1,3 +1,8 @@
 .DS_Store
 __pycache__/
 classify_image_graph_def.pb
+models/
+*.pickle
+*.npz
+samples/
+*.egg-info/
