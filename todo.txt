@@ -1,0 +1,5 @@
+project of visualizing classification tree of intermediate images during diffusion process  
+
+1. how to control level of noises added
+2. verify original image can be obtained by reverse ddim process
+3. insert classifier at right position and obtain probability vector for generated images@different timesteps

@@ -398,6 +398,8 @@ class GaussianDiffusion:
     # sample loop is wrapper for progressive function that generate
     # a sample xt, the function calls p_sample/ddim_sample which actually
     # do the sampling, use ddim in args and modify s.t ddim reverse sample function is used
+    
+    # prediction of x0 from xt
     def p_sample(
         self,
         model,
@@ -702,6 +704,8 @@ class GaussianDiffusion:
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():
+                # original ddim sampler, output clean image
+                """
                 out = self.ddim_sample(
                     model,
                     img,
@@ -712,6 +716,18 @@ class GaussianDiffusion:
                     model_kwargs=model_kwargs,
                     eta=eta,
                 )
+                """
+                # use ddim reverse sample to get image with noise
+                out = self.ddim_reverse_sample(
+                    model,
+                    img,
+                    t,
+                    clip_denoised=clip_denoised,
+                    denoised_fn=denoised_fn,
+                    model_kwargs=model_kwargs,
+                    eta=eta,
+                )
+                
                 yield out
                 img = out["sample"]
 

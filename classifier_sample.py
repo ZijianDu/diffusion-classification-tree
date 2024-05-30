@@ -5,7 +5,8 @@ process towards more realistic images.
 
 import argparse
 import os
-#from visualization.visualizer import visualizer
+from visualization.visualizer import visualizer
+from PIL import Image
 import pickle
 import numpy as np
 import torch as th
@@ -116,12 +117,14 @@ def main():
     vis.run_manifold_learning()
     """
 
-    # how to get 1k dim probability out and send to visualizer for visualization
     if dist.get_rank() == 0:
         shape_str = "x".join([str(x) for x in arr.shape])
-        out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")
+        out_path = os.path.join("samples/", f"{shape_str}.npz")
         logger.log(f"saving to {out_path}")
         np.savez(out_path, arr, label_arr)
+        for i in range(arr.shape[0]):
+            name = str(i+1) + ".jpg"
+            Image.fromarray(arr[i, :, :, :]).save("samples/" + name)
 
     dist.barrier()
     logger.log("sampling complete")
@@ -132,7 +135,7 @@ def create_argparser():
         clip_denoised=True,
         num_samples=10000,
         batch_size=16,
-        use_ddim=False,
+        use_ddim=True,
         model_path="",
         classifier_path="",
         classifier_scale=1.0,
