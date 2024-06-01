@@ -651,6 +651,8 @@ class GaussianDiffusion:
 
         Same usage as p_sample_loop().
         """
+        output_images = th.zeros(size = (100, 2, 3, 64, 64))
+        timestep = 0
         final = None
         for sample in self.ddim_sample_loop_progressive(
             model,
@@ -665,8 +667,11 @@ class GaussianDiffusion:
             eta=eta,
         ):
             final = sample
-        return final["sample"]
-
+            output_images[timestep, :, :, :, :] = final["sample"]
+            timestep += 1
+        #return final["sample"]
+        return output_images
+    
     def ddim_sample_loop_progressive(
         self,
         model,
@@ -704,7 +709,7 @@ class GaussianDiffusion:
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():
-                # original ddim sampler, output clean image
+                # original ddim sampler, input noise, output clean image
                 """
                 out = self.ddim_sample(
                     model,
@@ -717,7 +722,7 @@ class GaussianDiffusion:
                     eta=eta,
                 )
                 """
-                # use ddim reverse sample to get image with noise
+                # reverse ddim sampler, input clean image, output image with added noise
                 out = self.ddim_reverse_sample(
                     model,
                     img,
@@ -727,9 +732,9 @@ class GaussianDiffusion:
                     model_kwargs=model_kwargs,
                     eta=eta,
                 )
-                
                 yield out
                 img = out["sample"]
+                
 
     def _vb_terms_bpd(
         self, model, x_start, x_t, t, clip_denoised=True, model_kwargs=None
