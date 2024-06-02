@@ -5,7 +5,7 @@ cd "$parent_path"
 
 
 ## ddim100: 100 is stride, will run 100 times
-SAMPLE_FLAGS="--batch_size 2 --num_samples 4 --timestep_respacing ddim100 --num_diffusion_samples 100 --save_results True"
+SAMPLE_FLAGS="--batch_size 4 --num_samples 32 --timestep_respacing ddim20 --num_diffusion_samples 20 --save_results True"
 
 MODEL_FLAGS="--attention_resolutions 32,16,8 --class_cond True --diffusion_steps 1000 --dropout 0.1 
 --image_size 64 --learn_sigma True --noise_schedule cosine --num_channels 192 --num_head_channels 64 

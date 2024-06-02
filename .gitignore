@@ -2,6 +2,8 @@
 __pycache__/
 classify_image_graph_def.pb
 models/
+results/
+plots/
 *.pickle
 *.npz
 samples/
