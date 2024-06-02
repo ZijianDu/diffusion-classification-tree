@@ -645,13 +645,16 @@ class GaussianDiffusion:
         device=None,
         progress=False,
         eta=0.0,
+        args = None
     ):
         """
         Generate samples from the model using DDIM.
 
         Same usage as p_sample_loop().
         """
-        output_images = th.zeros(size = (100, 2, 3, 64, 64))
+    
+        output_images = th.zeros(size = (int(args.batch_size), int(args.num_diffusion_samples),
+                                          3, int(args.image_size), int(args.image_size)))
         timestep = 0
         final = None
         for sample in self.ddim_sample_loop_progressive(
@@ -667,7 +670,7 @@ class GaussianDiffusion:
             eta=eta,
         ):
             final = sample
-            output_images[timestep, :, :, :, :] = final["sample"]
+            output_images[:, timestep, :, :, :] = final["sample"]
             timestep += 1
         #return final["sample"]
         return output_images

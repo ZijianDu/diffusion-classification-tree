@@ -12,6 +12,8 @@ import numpy as np
 import torch as th
 import torch.distributed as dist
 import torch.nn.functional as F
+import unittest
+from unittest import TestCase
 
 from guided_diffusion import dist_util, logger
 from guided_diffusion.script_util import (
@@ -26,19 +28,30 @@ from guided_diffusion.script_util import (
 
 
 def main():
+    test = TestCase()
     args = create_argparser().parse_args()
     dist_util.setup_dist()
     logger.configure()
 
+    # list placeholder for final output data
+    all_images = []
+    all_probabilities = []
+    all_classes = []
+
+
     logger.log("reading imagenet images...")
+
     with np.load('imgnet_64x64_datasets/train_data_batch_1.npz') as data:
         shape = data["data"].shape
         logger.log("reshape clean images...")
         images = data["data"].reshape(shape[0], 3, args.image_size, args.image_size)
         # convert images into -1.0 ~ 1.0 range
         images = (images/127.5) - 1.0
-        #sample_image = images[0, :, :, :]
-        #Image.fromarray(sample_image.transpose(1, 2, 0)).save("test.png")
+        classes = data["labels"]
+        if args.save_results == "True":
+            out_path_labels = os.path.join("results/", "labels.npz")
+            logger.log(f"saving labels to {out_path_labels}")
+            np.savez(out_path_labels, classes)
 
     images = th.tensor(images, dtype = th.float32).to("cuda")
 
@@ -73,10 +86,11 @@ def main():
     def classify(x, t):
         x_in = x.detach()
         logits = classifier(x_in, t)
-        probability = F.softmax(logits, dim = -1)
+        probability = F.softmax(logits, dim = -1).detach().cpu().numpy()
         assert len(probability.shape) == 2
-        assert probability.shape[0] == args.batch_size
-        assert probability.shape[1] == 1000
+        assert probability.shape == (args.batch_size, 1000)
+        for i in range(args.batch_size):
+            np.testing.assert_almost_equal(sum(probability[i, :]), 1.0, decimal=5) 
         return probability
 
     def cond_fn(x, t, y=None):
@@ -93,26 +107,28 @@ def main():
     def model_fn(x, t, y=None):
         assert y is not None
         return model(x, t, y if args.class_cond else None)
+    
+    def get_one_batch_probability(output_images, batch_size, num_diffusion_samples):
+        # batchsize x diffusion steps x 1000 classes
+        one_batch_probability_vector = np.zeros(shape = (batch_size, num_diffusion_samples, 1000))
+        for time_step in range(int(num_diffusion_samples)):
+            t = th.tensor([time_step] * int(batch_size), device = "cuda")
+            probability = classify(output_images[:, time_step, :, :, :].to("cuda"), t)
+            one_batch_probability_vector[:, time_step, :] = probability
+        return one_batch_probability_vector
 
     logger.log("sampling...")
-    all_images = []
-    all_probabilities = []
 
     while len(all_images) * args.batch_size < args.num_samples:
         model_kwargs = {}
         classes = th.randint(
             low=0, high=NUM_CLASSES, size=(args.batch_size,), device=dist_util.dev()
         )
-        print("classes:", classes)
         model_kwargs["y"] = classes
         sample_fn = (
             diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
         )
-        print("sample function: ", sample_fn)
 
-        # probability has DDIMstep as first dimension
-        one_batch_probability_vector = np.zeros(shape = (args.batch_size, 100, 1000))
-        # provide clean image for reverse ddim
         # output images: batch x diffusionstep x 3 x imgsize x imgsize 
         # output probability vectors: batch x diffusionsteps x num_classes
         output_images = sample_fn(
@@ -123,25 +139,21 @@ def main():
             model_kwargs=model_kwargs,
             cond_fn=cond_fn,
             device=dist_util.dev(),
+            args = args
         )
-        output_images = ((output_images + 1) * 127.5).clamp(0, 255).to(th.uint8)
-        #output_images = output_images.permute(0, 2, 3, 1)
         output_images = output_images.contiguous()
 
-        print("output images shape: ", output_images.shape)
-        
-        for time_step in range(100):
-            t = [time_step] * args.batch_size
-            probability = classify(output_images, t)
-            one_batch_probability_vector[:, time_step, :] = probability
-                
-        gathered_samples = [th.zeros_like(output_images) for _ in range(dist.get_world_size())]
-        #dist.all_gather(gathered_samples, output_images)  # gather not supported with NCCL
-        all_images.extend([sample.cpu().numpy() for sample in gathered_samples])
-        gathered_probabilities = [th.zeros_like(classes) for _ in range(dist.get_world_size())]
-        dist.all_gather(gathered_probabilities, classes)
-        all_probabilities.extend([probabilities.cpu().numpy() for probabilities in gathered_probabilities])
+        all_probabilities.append(get_one_batch_probability(output_images, 
+                                                           int(args.batch_size), 
+                                                           int(args.num_diffusion_samples)))
+       
+        # renormalize images to be viewable
+        output_images = ((output_images + 1) * 127.5).clamp(0, 255).to(th.uint8)
+        all_images.append(output_images)
+        del output_images
+
         logger.log(f"created {len(all_images) * args.batch_size} samples")
+        logger.log(f"created {len(all_probabilities) * args.batch_size} probabilities")
         
 
     # final image arr shape: num_samples x diffusionsteps x 3 x img_size x img_size
@@ -154,27 +166,17 @@ def main():
     output_probabilities = output_probabilities[: args.num_samples]
     print("final output probability shape: ", output_probabilities.shape)
 
-    # generated batch of images and labels
-    """
-    images = list(arr[i][:, :, 0].squeeze() for i in range(arr.shape[0]))
-    print("generated image inputs", images)
-    print(images[0].shape)
-    vis = visualizer(2, images, list(label_arr))
-    vis.run_manifold_learning()
-    """
-
-    if dist.get_rank() == 0:
+    if args.save_results == "True":
         shape_str = "x".join([str(x) for x in output_images.shape])
-        out_path = os.path.join("samples/", f"{shape_str}.npz")
-        logger.log(f"saving to {out_path}")
-        np.savez(out_path, output_images, output_probabilities)
-        #for i in range(arr.shape[0]):
-        #    name = str(i+1) + ".jpg"
-        #    Image.fromarray(arr[i, :, :, :]).save("samples/" + name)
+        out_path_images = os.path.join("results/", f"{shape_str}_images.npz")
+        out_path_probabilities = os.path.join("results/", f"{shape_str}_probabilities.npz")
+        logger.log(f"saving images to {out_path_images}")
+        logger.log(f"saving probabilities to {out_path_probabilities}")
+        np.savez(out_path_images, output_images)
+        np.savez(out_path_probabilities, output_probabilities)
 
     dist.barrier()
-    logger.log("sampling complete")
-
+    logger.log("flow is completed...")
 
 def create_argparser():
     defaults = dict(
@@ -185,7 +187,8 @@ def create_argparser():
         model_path="",
         classifier_path="",
         classifier_scale=1.0,
-    )
+        num_diffusion_samples = None,
+        save_results = None)
     defaults.update(model_and_diffusion_defaults())
     defaults.update(classifier_defaults())
     parser = argparse.ArgumentParser()
