@@ -18,9 +18,12 @@ import numpy as np
 from matplotlib import offsetbox
 from time import time
 from sklearn.preprocessing import MinMaxScaler
+from PIL import Image
+import os
+import pandas as pd
 
 ## heavily inspired by sklearn manifold learning example
-class visualizer:
+class manifold:
     def __init__(self, n_neighbors, images, actual_prediction):
         self.n_neighbors = n_neighbors
         self.labels = [i for i in range(1000)]
@@ -128,3 +131,50 @@ class visualizer:
             title = f"{name} (time {timing[name]:.3f}s)"
             self.plot_embedding(projections[name], title)
             plt.savefig(title + ".jpg")
+
+
+class image_visualizer:
+    def __init__(self, args):
+        self.args = args
+        self.plots_dir = "plots/"
+
+    # images: diffusion steps x diffusion steps x 3 x image size x image size
+    def save_image_grid(self):
+        shape_str = "x".join([str(x) for x in (self.args.num_samples, self.args.num_diffusion_samples,
+                                               3, self.args.image_size, self.args.image_size)])
+        images = np.load(os.path.join(self.agrs.output_path, f"{shape_str}_images.npz"))["arr_0"].transpose(0, 1, 3, 4, 2)
+        plt.figure()
+        f, axarr = plt.subplots(self.num_samples, self.num_diffusion_samples, figsize = (60, 60)) 
+        
+        for i in range(self.num_samples):
+            for j in range(self.num_diffusion_samples):
+                axarr[i,j].imshow(images[i, j, :, :, :])
+        
+        plt.savefig(self.plots_dir + str(self.args.num_samples) + "x" 
+                    + str(self.args.num_diffusion_samples) + "_image_grid.jpg")
+
+    def display_one_image(self, images, batch_index, diffusion_step_index):
+        image = images[batch_index, diffusion_step_index, :, :, :]
+        Image.fromarray(image).save(self.plots_dir + "single_image_batch_" + str(batch_index) + 
+                                    "_diffusion_step_" + str(diffusion_step_index) + ".jpg")
+        
+
+class probability_visualizer:
+    def __init__(self, args):
+        self.num_samples = None
+        self.args = args
+
+    def visualize_histogrm(self):
+        shape_str = "x".join([str(x) for x in (self.args.num_samples, self.args.num_diffusion_samples,
+                                               3, self.args.image_size, self.args.image_size)])
+        probabilities = np.load(os.path.join(self.args.output_path, f"{shape_str}_probabilities.npz"))["arr_0"]
+        combined_probability = np.sum(probabilities, axis = 0)
+        fig = plt.figure(figsize = (20, 20))
+        plt.imshow(np.log(combined_probability))
+        plt.xticks(fontsize = 20)
+        plt.yticks(fontsize = 20)
+        plt.xlabel("class index", fontsize = 30)
+        plt.ylabel("diffusion steps", fontsize = 30)
+        plt.title("64x64 ImageNet images classification scores @ different diffusion steps", fontsize = 30)
+        fig.savefig("num_samples_" + str(self.args.num_samples) + "_histogram.jpg", dpi = 400)
+        

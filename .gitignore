@@ -9,4 +9,6 @@ plots/
 samples/
 *.egg-info/
 *.png
+**/*.png
+**/*.jpg
 *.jpg

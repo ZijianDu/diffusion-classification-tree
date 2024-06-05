@@ -5,7 +5,7 @@ process towards more realistic images.
 
 import argparse
 import os
-from visualization.visualizer import image_visualizer
+from visualization.visualizer import *
 from PIL import Image
 import pickle
 import numpy as np
@@ -29,7 +29,6 @@ from guided_diffusion.script_util import (
 class classification_tree:
     def __init__(self):
         self.image_data_path = 'imgnet_64x64_datasets/train_data_batch_1.npz'
-        self.output_path = "results/"
         self.args = self.create_argparser().parse_args()
 
     def create_argparser(self):
@@ -42,7 +41,8 @@ class classification_tree:
             classifier_path="",
             classifier_scale=1.0,
             num_diffusion_samples = None,
-            save_results = None)
+            save_results = None,
+            output_path = None)
         defaults.update(model_and_diffusion_defaults())
         defaults.update(classifier_defaults())
         parser = argparse.ArgumentParser()
@@ -55,7 +55,6 @@ class classification_tree:
         logger.configure()
         # sample generated should be greater or equal to number of 
         # diffusion samples to generate a square image grid
-        assert int(self.args.num_samples) >= int(self.args.num_diffusion_samples)
 
         all_images, all_probabilities, all_classes = [], [], []
         logger.log("reading imagenet images ...")
@@ -68,7 +67,7 @@ class classification_tree:
             images = (images/127.5) - 1.0
             classes = data["labels"]
             if self.args.save_results == "True":
-                out_path_labels = os.path.join(self.output_path, "labels.npz")
+                out_path_labels = os.path.join(self.args.output_path, "labels.npz")
                 logger.log(f"saving labels to {out_path_labels}")
                 np.savez(out_path_labels, classes)
         images = th.tensor(images, dtype = th.float32).to("cuda")
@@ -127,6 +126,7 @@ class classification_tree:
             return one_batch_probability_vector
 
         logger.log("sampling ...")
+        batch_index = 0
         while len(all_images) * self.args.batch_size < self.args.num_samples:
             model_kwargs = {}
             classes = th.randint(
@@ -141,7 +141,7 @@ class classification_tree:
             # output probability vectors: batch x diffusionsteps x num_classes
             output_images = sample_fn(
                 model_fn, (self.args.batch_size, 3, self.args.image_size, self.args.image_size),
-                noise = images[:self.args.batch_size, :, :, :], 
+                noise = images[batch_index * self.args.batch_size:(batch_index + 1) * self.args.batch_size, :, :, :], 
                 clip_denoised=self.args.clip_denoised,
                 model_kwargs=model_kwargs,
                 cond_fn=cond_fn,
@@ -158,9 +158,9 @@ class classification_tree:
             output_images = ((output_images + 1) * 127.5).clamp(0, 255).to(th.uint8)
             all_images.append(output_images)
             del output_images
-
             logger.log(f"created {len(all_images) * self.args.batch_size} samples")
             logger.log(f"created {len(all_probabilities) * self.args.batch_size} probabilities")
+            batch_index += 1
 
         # final image arr shape: num_samples x diffusionsteps x 3 x img_size x img_size
         output_images = np.concatenate(all_images, axis=0)
@@ -174,11 +174,11 @@ class classification_tree:
 
         if self.args.save_results == "True":
             shape_str = "x".join([str(x) for x in output_images.shape])
-            out_path_images = os.path.join(self.output_path, f"{shape_str}_images.npz")
-            out_path_probabilities = os.path.join(self.output_path, f"{shape_str}_probabilities.npz")
-            logger.log(f"saving images to {out_path_images}")
+            #out_path_images = os.path.join(self.args.output_path, f"{shape_str}_images.npz")
+            out_path_probabilities = os.path.join(self.args.output_path, f"{shape_str}_probabilities.npz")
+            #logger.log(f"saving images to {out_path_images}")
             logger.log(f"saving probabilities to {out_path_probabilities}")
-            np.savez(out_path_images, output_images)
+            #np.savez(out_path_images, output_images)
             np.savez(out_path_probabilities, output_probabilities)
         dist.barrier()
         logger.log("data generation completed ...")
@@ -186,13 +186,13 @@ class classification_tree:
     def visualize_images_and_probabilities(self):
         logger.log("starting to visualize ...")
         # read from generated images 
-        shape_str = "x".join([str(x) for x in (self.args.num_samples, self.args.num_diffusion_samples,
-                                               3, self.args.image_size, self.args.image_size)])
-        images = np.load(os.path.join(self.output_path, f"{shape_str}_images.npz"))["arr_0"][:int(self.args.num_diffusion_samples), :, :, :, :]
-        visualizer = image_visualizer(int(self.args.num_diffusion_samples), int(self.args.num_diffusion_samples))
+        #img_visualizer = image_visualizer(self.args)
+        prob_visualizer = probability_visualizer(self.args)
+        prob_visualizer.visualize_histogrm()
         #visualizer = image_visualizer(5, 5)
         # valid image should be height x width x 3
-        visualizer.save_image_grid(images.transpose(0, 1, 3, 4, 2))
+        #visualizer.save_image_grid()
+        #visualizer.display_one_image(images.transpose(0, 1, 3, 4, 2), 0, 0)
         logger.log("flow is completed ...")
 
 
