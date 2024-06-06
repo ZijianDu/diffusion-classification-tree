@@ -136,26 +136,26 @@ class manifold:
 class image_visualizer:
     def __init__(self, args):
         self.args = args
-        self.plots_dir = "plots/"
 
     # images: diffusion steps x diffusion steps x 3 x image size x image size
     def save_image_grid(self):
         shape_str = "x".join([str(x) for x in (self.args.num_samples, self.args.num_diffusion_samples,
                                                3, self.args.image_size, self.args.image_size)])
-        images = np.load(os.path.join(self.agrs.output_path, f"{shape_str}_images.npz"))["arr_0"].transpose(0, 1, 3, 4, 2)
+        images = np.load(os.path.join(self.args.output_path, f"{shape_str}_images.npz"))["arr_0"].transpose(0, 1, 3, 4, 2)
         plt.figure()
-        f, axarr = plt.subplots(self.num_samples, self.num_diffusion_samples, figsize = (60, 60)) 
+        f, axarr = plt.subplots(int(self.args.num_samples), 
+                                int(self.args.num_diffusion_samples), figsize = (60, 60)) 
         
-        for i in range(self.num_samples):
-            for j in range(self.num_diffusion_samples):
+        for i in range(int(self.args.num_samples)):
+            for j in range(int(self.args.num_diffusion_samples)):
                 axarr[i,j].imshow(images[i, j, :, :, :])
         
-        plt.savefig(self.plots_dir + str(self.args.num_samples) + "x" 
+        plt.savefig(self.args.plots_dir + str(self.args.num_samples) + "x" 
                     + str(self.args.num_diffusion_samples) + "_image_grid.jpg")
 
     def display_one_image(self, images, batch_index, diffusion_step_index):
         image = images[batch_index, diffusion_step_index, :, :, :]
-        Image.fromarray(image).save(self.plots_dir + "single_image_batch_" + str(batch_index) + 
+        Image.fromarray(image).save(self.args.plots_dir + "single_image_batch_" + str(batch_index) + 
                                     "_diffusion_step_" + str(diffusion_step_index) + ".jpg")
         
 
