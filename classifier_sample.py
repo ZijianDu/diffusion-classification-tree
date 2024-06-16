@@ -77,7 +77,7 @@ class classification_tree:
         add_dict_to_argparser(parser, defaults)
         return parser
     
-    ## function to generate and save images of desired size with augmentation
+    # function to generate and save images of desired size with augmentation
     def create_augmented_images(self):
         image_names = os.listdir(self.args.image_data_path)
         num_images = len(image_names)
@@ -97,22 +97,28 @@ class classification_tree:
         # reshape images to be (CropNumxImgNum) x 3 x image_size x image_size
         return np.array(all_augmented_images).reshape((int(self.args.random_crop_per_image)*num_images,
                                                        3, int(self.args.image_size), int(self.args.image_size)))
+    
     def generate_clean_images(self):
-        image_names = sorted(os.listdir(self.args.image_data_path))
+        logger.log("generating clean images ...")
+        gt = list(np.loadtxt(self.args.image_data_path + "val_gt/ILSVRC2012_validation_ground_truth.txt").astype(int))
+        image_names = sorted(os.listdir(self.args.image_data_path + "val/"))
         print("number of images: " + str(len(image_names)))
-        for name in image_names:
-            image = Image.open(self.args.image_data_path + name)
+        for idx, name in enumerate(image_names):
+            image = Image.open(self.args.image_data_path + "val/" + name).convert("RGB")
             resized_image = center_crop_arr(image, int(self.args.image_size))
-            if name[:9] not in self.clean_images:
-                self.clean_images[name[:9]] = []
-            self.clean_images[name[:9]].append(resized_image)
+            if str(gt[idx]) not in self.clean_images:
+                self.clean_images[str(gt[idx])] = [resized_image]
+            else:
+                self.clean_images[str(gt[idx])].append(resized_image)
         print("number of classes: " + str(len(list(self.clean_images.keys()))))
         print("saving clean images")
-        with open(self.args.output_path + 'all_clean_images.pickle', 'wb') as handle:
+        with open(self.args.output_path + 'all_validation_images.pickle', 'wb') as handle:
             pickle.dump(self.clean_images, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    
     # read saved clean images and reshape values into Num_Images x 3 x 64 x 64 then change to -1.0~1.0 range
     def read_clean_images(self):
-        with open(self.args.output_path + 'all_clean_images.pickle', 'rb') as handle:
+        with open(self.args.output_path + 'all_validation_images.pickle', 'rb') as handle:
             self.clean_images = pickle.load(handle)
         self.all_keys = list(self.clean_images.keys())
         for i, key in enumerate(self.all_keys):
@@ -122,16 +128,17 @@ class classification_tree:
                                                                     int(self.args.image_size), 
                                                                     int(self.args.image_size), 3))
             # sanity check the images are correct
-            Image.fromarray(self.clean_images[key][0, :, :, :]).save(self.args.output_path + f"{i}th class sample.png".format(i))
+            #Image.fromarray(self.clean_images[key][0, :, :, :]).save(self.args.output_path + f"{i}th class sample.png".format(i))
             self.clean_images[key] = (self.clean_images[key].transpose(0, 3, 1, 2) / 127.5) - 1.0
             # discard last couple images to make number of images dividable by batch number
             kept_num_images = curr_num_images - curr_num_images % int(self.args.batch_size)
             self.clean_images[key] = self.clean_images[key][:kept_num_images, :, :, :]
             assert self.clean_images[key].shape == (kept_num_images, 3, int(self.args.image_size), int(self.args.image_size))
         print("finish reading clean images")
+        for key in sorted(list(self.all_keys)):
+            logger.log("key: ", key, " image shape: ", self.clean_images[key].shape)
         
     def generate_classifications(self):
-
         # classifier to output probability class for each input image/t combination
         # x: batchsize x 3 x imgsize x imgsize probability: batchsize x 1000
         def classify(x, t):
@@ -180,7 +187,6 @@ class classification_tree:
                 one_batch_probability_vector[:, time_step, :] = probability
             return one_batch_probability_vector
 
-
         # load classifier
         test = TestCase()
         dist_util.setup_dist()
@@ -202,48 +208,39 @@ class classification_tree:
             model.convert_to_fp16()
         model.eval()
         
-        logger.log("reading saved clean images ...")
         #self.generate_clean_images()
         self.read_clean_images()
-
-        logger.log("checking classifier performance on clean images ...")
-        sample_class_images = self.clean_images[self.all_keys[0]][:10, :, :, :]
-        verify_clean_image_prediction(th.tensor(sample_class_images, dtype = th.float32, device="cuda"))
-
-        logger.log("generating reverse DDIM samples ...")
+        logger.log("checking classifier performance on clean images ... \n")
+        #sample_class_images = self.clean_images[self.all_keys[0]][:10, :, :, :]
+        #verify_clean_image_prediction(th.tensor(sample_class_images, dtype = th.float32, device="cuda"))
+        logger.log("generating reverse DDIM samples ... \n")
         # two iterations: outter is different class, inner is batch for this class
-        for key_idx, key in enumerate(self.all_keys):
+        for key_idx, key in enumerate(sorted(self.all_keys)):
             curr_class_num_images = self.clean_images[key].shape[0]
             batch_index = 0
             one_class_images, one_class_probabilities = [], []
-            print("processing one class with key: ", key, " images shape: ", self.clean_images[key].shape, "\n")
+            print("\n processing one class with key: ", key, " images shape: ", self.clean_images[key].shape, "\n")
             images = self.clean_images[key]
-            while len(one_class_images) * self.args.batch_size < curr_class_num_images:
-                logger.log("\n" + f"processing batch {batch_index}".format(batch_index))
+            while len(one_class_images)*self.args.batch_size < curr_class_num_images:
+                logger.log(f"processing batch {batch_index}".format(batch_index))
                 model_kwargs = {}
                 classes = th.randint(low=0, high=NUM_CLASSES, size=(self.args.batch_size,), 
                 device=dist_util.dev())
                 model_kwargs["y"] = classes
-                sample_fn = (
-                    diffusion.p_sample_loop if not self.args.use_ddim else diffusion.ddim_sample_loop
-                )
-
+                sample_fn = (diffusion.p_sample_loop if not self.args.use_ddim else diffusion.ddim_sample_loop)
                 # output images: batch x diffusionstep x 3 x imgsize x imgsize 
                 # output probability vectors: batch x diffusionsteps x num_classes
                 output_images = sample_fn(
                     model_fn, (self.args.batch_size, 3, self.args.image_size, self.args.image_size),
-                    noise = th.tensor(images[batch_index*self.args.batch_size:(batch_index + 1)*self.args.batch_size, :, :, :], dtype = th.float32).to("cuda"), 
+                    noise = th.tensor(images[batch_index*self.args.batch_size:(batch_index+1)*self.args.batch_size, :, :, :], dtype = th.float32).to("cuda"), 
                     clip_denoised=self.args.clip_denoised,
                     model_kwargs=model_kwargs,
                     cond_fn=cond_fn,
                     device=dist_util.dev(),
-                    args = self.args
-                    )
-                output_images = output_images.contiguous()
+                    args = self.args)
                 one_class_probabilities.append(get_one_batch_probability(output_images, 
                                                                 int(self.args.batch_size), 
                                                                 int(self.args.num_diffusion_samples)))
-            
                 # renormalize images to be viewable
                 output_images = ((output_images + 1) * 127.5).clamp(0, 255).to(th.uint8)
                 one_class_images.append(output_images)
@@ -252,26 +249,30 @@ class classification_tree:
                 logger.log(f"created {len(one_class_images) * self.args.batch_size} samples")
                 logger.log(f"created {len(one_class_probabilities) * self.args.batch_size} probabilities")
                 batch_index += 1
-                break
-
+            
             # save results for one class
             # final image arr shape: num_samples x diffusionsteps x 3 x img_size x img_size
-            output_images = np.concatenate(one_class_images, axis=0)
-            print("current class output image shape: ", output_images.shape)
-            self.all_diffusion_steps_images[key] = output_images
+            one_class_images = np.array(one_class_images)
+            one_class_images = one_class_images.reshape(one_class_images.shape[0]*one_class_images.shape[1], 1000, 3, int(self.args.image_size), int(self.args.image_size))
+            print("current class output image shape: ", one_class_images.shape)
+            
+            self.all_diffusion_steps_images[key] = one_class_images
 
             # final probability vector shape: num_samples x diffusionsteps x 1000
-            output_probabilities = np.concatenate(one_class_probabilities, axis=0)
-            print("current class output probability shape: ", output_probabilities.shape)
-            self.all_diffusion_steps_prediction[key] = output_probabilities
-            break
-
+            one_class_probabilities = np.array(one_class_probabilities)
+            one_class_probabilities = one_class_probabilities.reshape(one_class_probabilities.shape[0]*one_class_probabilities.shape[1], 1000, 1000)
+            print("current class output probability shape: ", one_class_probabilities.shape)
+            # average over the num_images dimension
+            self.all_diffusion_steps_prediction[key] = np.mean(one_class_probabilities, axis = 0)
+            print("current class output probability shape after averaging: ", 
+                  self.all_diffusion_steps_prediction[key].shape)
+            
         if self.args.save_results == "True":
-            shape_str = "x".join([str(x) for x in output_images.shape])
             logger.log("saving images ...")
-            logger.log("saving probabilities ...")
             with open(self.args.output_path + 'all_diffusion_steps_images.pickle', 'wb') as handle:
                 pickle.dump(self.all_diffusion_steps_images, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+            logger.log("saving probabilities ...")
             with open(self.args.output_path + 'all_diffusion_steps_probabilities.pickle', 'wb') as handle:
                 pickle.dump(self.all_diffusion_steps_prediction, handle, protocol=pickle.HIGHEST_PROTOCOL)
         dist.barrier()
@@ -280,11 +281,12 @@ class classification_tree:
     def visualize_images_and_probabilities(self):
         logger.log("starting to visualize ...")
         # read from generated images 
-        #img_visualizer = image_visualizer(self.args)
-        prob_visualizer = probability_visualizer(self.args)
-        prob_visualizer.visualize_histogrm()
-        visualizer = image_visualizer(self.args)
-        # valid image should be height x width x 3
+        img_visualizer = image_visualizer(self.args)
+        img_visualizer.check_image_shapes()
+        #prob_visualizer = probability_visualizer(self.args)
+        #prob_visualizer.visualize_histogrm()
+        #visualizer = image_visualizer(self.args)
+        #valid image should be height x width x 3
         #visualizer.save_image_grid()
         #visualizer.display_one_image(images.transpose(0, 1, 3, 4, 2), 0, 0)
         logger.log("flow is completed ...")
@@ -293,5 +295,5 @@ class classification_tree:
 if __name__ == "__main__":
     tree = classification_tree()
     tree.generate_classifications()
-    tree.visualize_images_and_probabilities()
+    #tree.visualize_images_and_probabilities()
 

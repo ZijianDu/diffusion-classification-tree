@@ -21,6 +21,7 @@ from sklearn.preprocessing import MinMaxScaler
 from PIL import Image
 import os
 import pandas as pd
+import pickle
 
 ## heavily inspired by sklearn manifold learning example
 class manifold:
@@ -137,6 +138,16 @@ class image_visualizer:
     def __init__(self, args):
         self.args = args
 
+    def check_image_shapes(self):
+        with open(self.args.output_path + "all_diffusion_steps_images.pickle", 'rb') as handle:
+            images = pickle.load(handle)
+        print("keys of all saved images: ", list(images.keys()))
+        print(len(list(images.keys())))
+        for key in list(images.keys()):
+            print(images[key].shape)
+        
+        
+
     # images: diffusion steps x diffusion steps x 3 x image size x image size
     def save_image_grid(self):
         shape_str = "x".join([str(x) for x in (self.args.num_samples, self.args.num_diffusion_samples,
@@ -165,16 +176,24 @@ class probability_visualizer:
         self.args = args
 
     def visualize_histogrm(self):
-        shape_str = "x".join([str(x) for x in (self.args.num_samples, self.args.num_diffusion_samples,
-                                               3, self.args.image_size, self.args.image_size)])
-        probabilities = np.load(os.path.join(self.args.output_path, f"{shape_str}_probabilities.npz"))["arr_0"]
-        combined_probability = np.sum(probabilities, axis = 0)
-        fig = plt.figure(figsize = (20, 20))
-        plt.imshow(np.log(combined_probability))
-        plt.xticks(fontsize = 20)
-        plt.yticks(fontsize = 20)
-        plt.xlabel("class index", fontsize = 30)
-        plt.ylabel("diffusion steps", fontsize = 30)
-        plt.title("64x64 ImageNet images classification scores @ different diffusion steps", fontsize = 30)
-        fig.savefig("num_samples_" + str(self.args.num_samples) + "_histogram.jpg", dpi = 400)
+        with open(self.args.output_path + 'all_diffusion_steps_probabilities.pickle', 'rb') as handle:
+            probabilities = pickle.load(handle)
+            final_heatmap = np.zeros(shape = (1000, 1000))
+            ## validation
+            print("all keys of saved probabilities, ", list(probabilities.keys()))
+            for key in list(probabilities.keys()):
+                assert probabilities[key].shape == (1000, 1000)
+                final_heatmap += probabilities[key]
+                #print(np.argmax(combined_probability, axis = 1))
+                #plt.scatter(np.arange(1000), np.argmax(combined_probability, axis = 1))
+                #plt.savefig("combined.png")
+            fig = plt.figure(figsize = (20, 20))
+            plt.imshow(final_heatmap)
+            plt.xticks(fontsize = 20)
+            plt.yticks(fontsize = 20)
+            plt.xlabel("class index", fontsize = 30)
+            plt.ylabel("diffusion steps", fontsize = 30)
+            plt.title("all classes 6 samples @ different diffusion steps", fontsize = 30)
+            #fig.savefig("num_samples_" + str(self.args.num_samples) + "_histogram.jpg", dpi = 400)
+            fig.savefig("test.png")
         
