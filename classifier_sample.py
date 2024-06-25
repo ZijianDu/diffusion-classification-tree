@@ -208,7 +208,8 @@ class classification_tree:
             model.convert_to_fp16()
         model.eval()
         
-        #self.generate_clean_images()
+        if "all_validation_images.pickle" not in os.listdir(self.args.output_path):
+            self.generate_clean_images()
         self.read_clean_images()
         logger.log("checking classifier performance on clean images ... \n")
         #sample_class_images = self.clean_images[self.all_keys[0]][:10, :, :, :]
@@ -244,37 +245,27 @@ class classification_tree:
                 # renormalize images to be viewable
                 output_images = ((output_images + 1) * 127.5).clamp(0, 255).to(th.uint8)
                 one_class_images.append(output_images)
-                del output_images
+
                 logger.log(f"processed batch {batch_index}".format(batch_index))
                 logger.log(f"created {len(one_class_images) * self.args.batch_size} samples")
                 logger.log(f"created {len(one_class_probabilities) * self.args.batch_size} probabilities")
                 batch_index += 1
             
             # save results for one class
+            
             # final image arr shape: num_samples x diffusionsteps x 3 x img_size x img_size
             one_class_images = np.array(one_class_images)
             one_class_images = one_class_images.reshape(one_class_images.shape[0]*one_class_images.shape[1], 1000, 3, int(self.args.image_size), int(self.args.image_size))
             print("current class output image shape: ", one_class_images.shape)
-            
-            self.all_diffusion_steps_images[key] = one_class_images
-
             # final probability vector shape: num_samples x diffusionsteps x 1000
             one_class_probabilities = np.array(one_class_probabilities)
             one_class_probabilities = one_class_probabilities.reshape(one_class_probabilities.shape[0]*one_class_probabilities.shape[1], 1000, 1000)
             print("current class output probability shape: ", one_class_probabilities.shape)
-            # average over the num_images dimension
-            self.all_diffusion_steps_prediction[key] = np.mean(one_class_probabilities, axis = 0)
-            print("current class output probability shape after averaging: ", 
-                  self.all_diffusion_steps_prediction[key].shape)
             
-        if self.args.save_results == "True":
-            logger.log("saving images ...")
-            with open(self.args.output_path + 'all_diffusion_steps_images.pickle', 'wb') as handle:
-                pickle.dump(self.all_diffusion_steps_images, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-            logger.log("saving probabilities ...")
-            with open(self.args.output_path + 'all_diffusion_steps_probabilities.pickle', 'wb') as handle:
-                pickle.dump(self.all_diffusion_steps_prediction, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            print("saving current class probabilities ...")
+            with open(self.args.output_path + "per_class_probabilities/" + str(key) + '.pickle', 'wb') as handle:
+                pickle.dump(one_class_probabilities, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        
         dist.barrier()
         logger.log("data generated and probabilities calculated ...")
 
@@ -297,3 +288,21 @@ if __name__ == "__main__":
     tree.generate_classifications()
     #tree.visualize_images_and_probabilities()
 
+
+'''
+## saving final images and probabilities (too big)
+if self.args.save_results == "True":
+    logger.log("saving images ...")
+    with open(self.args.output_path + 'all_diffusion_steps_images.pickle', 'wb') as handle:
+        pickle.dump(self.all_diffusion_steps_images, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    logger.log("saving probabilities ...")
+    with open(self.args.output_path + 'all_diffusion_steps_probabilities.pickle', 'wb') as handle:
+        pickle.dump(self.all_diffusion_steps_prediction, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+# average over the num_images dimension
+self.all_diffusion_steps_prediction[key] = np.mean(one_class_probabilities, axis = 0)
+
+self.all_diffusion_steps_images[key] = one_class_images
+'''
