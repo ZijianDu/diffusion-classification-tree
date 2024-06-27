@@ -261,10 +261,10 @@ class classification_tree:
             one_class_probabilities = np.array(one_class_probabilities)
             one_class_probabilities = one_class_probabilities.reshape(one_class_probabilities.shape[0]*one_class_probabilities.shape[1], 1000, 1000)
             print("current class output probability shape: ", one_class_probabilities.shape)
-            
-            print("saving current class probabilities ...")
+            avg_one_class_probability = np.mean(one_class_probabilities, axis = 0)
+            print("current class probability shape after averaging: ", avg_one_class_probability.shape)
             with open(self.args.output_path + "per_class_probabilities/" + str(key) + '.pickle', 'wb') as handle:
-                pickle.dump(one_class_probabilities, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(avg_one_class_probability, handle, protocol=pickle.HIGHEST_PROTOCOL)
         
         dist.barrier()
         logger.log("data generated and probabilities calculated ...")
@@ -272,10 +272,10 @@ class classification_tree:
     def visualize_images_and_probabilities(self):
         logger.log("starting to visualize ...")
         # read from generated images 
-        img_visualizer = image_visualizer(self.args)
-        img_visualizer.check_image_shapes()
-        #prob_visualizer = probability_visualizer(self.args)
-        #prob_visualizer.visualize_histogrm()
+        #img_visualizer = image_visualizer(self.args)
+        #img_visualizer.check_image_shapes()
+        prob_visualizer = probability_visualizer(self.args)
+        prob_visualizer.visualize_histogrm()
         #visualizer = image_visualizer(self.args)
         #valid image should be height x width x 3
         #visualizer.save_image_grid()
@@ -285,8 +285,8 @@ class classification_tree:
 
 if __name__ == "__main__":
     tree = classification_tree()
-    tree.generate_classifications()
-    #tree.visualize_images_and_probabilities()
+    #tree.generate_classifications()
+    tree.visualize_images_and_probabilities()
 
 
 '''
