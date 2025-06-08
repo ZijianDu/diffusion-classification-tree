@@ -175,25 +175,35 @@ class probability_visualizer:
         self.num_samples = None
         self.args = args
 
+
+    ## averaged result of 1000 (classes) x 1000 (number of diffusion steps) probabilities
     def visualize_histogrm(self):
-        with open(self.args.output_path + 'all_diffusion_steps_probabilities.pickle', 'rb') as handle:
-            probabilities = pickle.load(handle)
-            final_heatmap = np.zeros(shape = (1000, 1000))
-            ## validation
-            print("all keys of saved probabilities, ", list(probabilities.keys()))
-            for key in list(probabilities.keys()):
-                assert probabilities[key].shape == (1000, 1000)
-                final_heatmap += probabilities[key]
-                #print(np.argmax(combined_probability, axis = 1))
-                #plt.scatter(np.arange(1000), np.argmax(combined_probability, axis = 1))
-                #plt.savefig("combined.png")
-            fig = plt.figure(figsize = (20, 20))
-            plt.imshow(final_heatmap)
-            plt.xticks(fontsize = 20)
-            plt.yticks(fontsize = 20)
-            plt.xlabel("class index", fontsize = 30)
-            plt.ylabel("diffusion steps", fontsize = 30)
-            plt.title("all classes 6 samples @ different diffusion steps", fontsize = 30)
-            #fig.savefig("num_samples_" + str(self.args.num_samples) + "_histogram.jpg", dpi = 400)
-            fig.savefig("test.png")
+        final_heatmap = np.zeros(shape = (1000, 1000))
+        with open(self.args.output_path + "per_class_probabilities/270.pickle", 'rb') as handle:
+            one_class_probability = pickle.load(handle)
+            print(np.argmax(one_class_probability[0, :]))
+            final_heatmap += one_class_probability
+        """        
+        counter = 0
+        for filename in os.listdir(self.args.output_path + "per_class_probabilities/")[60:100]:
+            print(filename)
+            with open(self.args.output_path + "per_class_probabilities/" + filename, 'rb') as handle:
+                one_class_probability = pickle.load(handle)
+                #validate shape
+                assert one_class_probability.shape == (1000, 1000)
+                print(np.argmax(one_class_probability[0, :]))
+                final_heatmap += one_class_probability
+            counter += 1
+            if counter == 1:
+                break
+        """
+        fig = plt.figure(figsize = (20, 20))
+        plt.imshow(final_heatmap)
+        plt.xticks(fontsize = 20)
+        plt.yticks(fontsize = 20)
+        plt.xlabel("class index", fontsize = 30)
+        plt.ylabel("diffusion steps", fontsize = 30)
+        plt.title("1000 diffusion steps, averaged validation images", fontsize = 30)
+        #fig.savefig("num_samples_" + str(self.args.num_samples) + "_histogram.jpg", dpi = 400)
+        fig.savefig("test.png")
         

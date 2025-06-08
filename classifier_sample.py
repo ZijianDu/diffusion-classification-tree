@@ -101,8 +101,11 @@ class classification_tree:
     def generate_clean_images(self):
         logger.log("generating clean images ...")
         gt = list(np.loadtxt(self.args.image_data_path + "val_gt/ILSVRC2012_validation_ground_truth.txt").astype(int))
+        # sorted image name is indeed sorted
         image_names = sorted(os.listdir(self.args.image_data_path + "val/"))
         print("number of images: " + str(len(image_names)))
+
+        # read images and form class-image table
         for idx, name in enumerate(image_names):
             image = Image.open(self.args.image_data_path + "val/" + name).convert("RGB")
             resized_image = center_crop_arr(image, int(self.args.image_size))
@@ -110,6 +113,8 @@ class classification_tree:
                 self.clean_images[str(gt[idx])] = [resized_image]
             else:
                 self.clean_images[str(gt[idx])].append(resized_image)
+
+        print("all keys: ", list(self.clean_images.keys()))
         print("number of classes: " + str(len(list(self.clean_images.keys()))))
         print("saving clean images")
         with open(self.args.output_path + 'all_validation_images.pickle', 'wb') as handle:
@@ -118,25 +123,26 @@ class classification_tree:
     
     # read saved clean images and reshape values into Num_Images x 3 x 64 x 64 then change to -1.0~1.0 range
     def read_clean_images(self):
+        assert "all_validation_images.pickle" in os.listdir(self.args.output_path)
         with open(self.args.output_path + 'all_validation_images.pickle', 'rb') as handle:
             self.clean_images = pickle.load(handle)
         self.all_keys = list(self.clean_images.keys())
-        for i, key in enumerate(self.all_keys):
+        for key in list(self.all_keys):
             curr_images = self.clean_images[key]
             curr_num_images = len(curr_images)
+            # reshape from list of images into tensor
             self.clean_images[key] = np.array(curr_images).reshape((curr_num_images, 
                                                                     int(self.args.image_size), 
                                                                     int(self.args.image_size), 3))
             # sanity check the images are correct
-            #Image.fromarray(self.clean_images[key][0, :, :, :]).save(self.args.output_path + f"{i}th class sample.png".format(i))
+            Image.fromarray(self.clean_images[key][0, :, :, :]).save(self.args.output_path + "sample_image_per_class/" + f"{key}th class sample.png".format(key))
+            # scale the images into -1.0 to 1.0 range
             self.clean_images[key] = (self.clean_images[key].transpose(0, 3, 1, 2) / 127.5) - 1.0
             # discard last couple images to make number of images dividable by batch number
             kept_num_images = curr_num_images - curr_num_images % int(self.args.batch_size)
             self.clean_images[key] = self.clean_images[key][:kept_num_images, :, :, :]
             assert self.clean_images[key].shape == (kept_num_images, 3, int(self.args.image_size), int(self.args.image_size))
         print("finish reading clean images")
-        for key in sorted(list(self.all_keys)):
-            logger.log("key: ", key, " image shape: ", self.clean_images[key].shape)
         
     def generate_classifications(self):
         # classifier to output probability class for each input image/t combination
@@ -210,6 +216,7 @@ class classification_tree:
         
         if "all_validation_images.pickle" not in os.listdir(self.args.output_path):
             self.generate_clean_images()
+
         self.read_clean_images()
         logger.log("checking classifier performance on clean images ... \n")
         #sample_class_images = self.clean_images[self.all_keys[0]][:10, :, :, :]
@@ -268,7 +275,7 @@ class classification_tree:
         
         dist.barrier()
         logger.log("data generated and probabilities calculated ...")
-
+        
     def visualize_images_and_probabilities(self):
         logger.log("starting to visualize ...")
         # read from generated images 
@@ -285,8 +292,8 @@ class classification_tree:
 
 if __name__ == "__main__":
     tree = classification_tree()
-    #tree.generate_classifications()
-    tree.visualize_images_and_probabilities()
+    tree.generate_classifications()
+    #tree.visualize_images_and_probabilities()
 
 
 '''

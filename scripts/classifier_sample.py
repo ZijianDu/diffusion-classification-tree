@@ -71,8 +71,9 @@ def main():
         return model(x, t, y if args.class_cond else None)
 
     logger.log("sampling...")
-    all_images = []
-    all_labels = []
+    all_images, all_labels = [], []
+
+    # process with unit of batch till number of samples
     while len(all_images) * args.batch_size < args.num_samples:
         model_kwargs = {}
         classes = th.randint(
